@@ -1,0 +1,349 @@
+#!/usr/bin/env python
+
+"""
+Check various aspects of a running BIRD daemon (interface states, several routing protocols) by interrogating the
+daemon via its control socket. Intended to be run from nagios.
+
+Michael Fincham <michael.fincham@catalyst.net.nz>. This file is licensed under the GNU General Public License version 3.
+"""
+
+import sys
+import socket
+import argparse
+
+BIRD_CONTROL_SOCKET="/run/bird/bird.ctl"
+
+NAGIOS_OK = 0
+NAGIOS_WARNING = 1
+NAGIOS_CRITICAL = 2
+NAGIOS_UNKNOWN = 3
+
+class BirdChecker(object):
+
+    def __init__(self, control_socket):
+        self.control_socket = control_socket
+
+    # mostly from pybird.py
+    def _send_query(self, query):
+        """
+        Open a socket to the BIRD control socket, send the query and get
+        the raw response.
+        """
+
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(self.control_socket)
+        sock.send("%s\n" % query)
+
+        data = ''
+        prev_data = None
+
+        while (data.find("\n0000") == -1) and (data.find("\n8003") == -1) and (data.find("\n0013") == -1) and (data.find("\n9001") == -1) and (data.find("\n8001") == -1):
+            data += sock.recv(1024)
+            if data == prev_data:
+                raise ValueError("Could not read additional data from BIRD")
+            prev_data = data
+
+        sock.close()
+        return str(data)
+
+    def _interface_flags(self):
+        """
+        Parse the output of 'show interfaces' and return a dict containing all
+        interfaces with their set flags.
+
+        The raw data looks like:
+
+        1001-br-nat up (index=19)
+        1004-   MultiAccess Broadcast Multicast AdminUp LinkUp MTU=1500
+        1003-   202.78.247.160/32 (Primary, scope univ)
+                202.78.247.162/32 (Unselected, scope univ)
+                202.78.247.161/32 (Unselected, scope univ)
+                202.78.247.163/32 (Unselected, scope univ)
+
+        Will be turned in to:
+
+        {'br-nat': ['MultiAccess', 'Broadcast', 'Multicast', 'AdminUp', 'LinkUp', 'MTU=1500']}
+        """
+
+        interface_data = self._send_query('show interfaces')
+
+        interfaces = {}
+        current_interface = ''
+
+        for line in iter(interface_data.splitlines(False)):
+            if line.startswith('1001-'): # line describes the interface
+                current_interface = line[5:].split()[0]
+            elif line.startswith('1004-'): # line describes the interface flags
+                interfaces[current_interface] = line.strip().split()[1:]
+
+        return interfaces
+
+    def _generic_protocol_properties(self, command, protocol_id, columns, index_column):
+        """
+        Parse the output of an arbitrary command that returns output similar to 'show bfd sessions'
+        and return a dict containing all protocols' sessions with their properties.
+
+        The raw data looks like:
+
+        1020-bfd1:
+         IP address                Interface  State      Since       Interval  Timeout
+         202.78.247.11             bond0.503  Up         2014-10-06    0.100    0.500
+         202.78.247.9              bond0.502  Up         2014-09-24    0.100    0.500
+
+        Will be turned in to:
+
+        {'bfd1': {'202.78.247.11': {'interface': 'bond0.503',
+                                    'interval': '0.100',
+                                    'since': '2014-10-06',
+                                    'state': 'Up',
+                                    'timeout': '0.500'},
+                  '202.78.247.9': {'interface': 'bond0.502',
+                                   'interval': '0.100',
+                                   'since': '2014-09-24',
+                                   'state': 'Up',
+                                   'timeout': '0.500'}}}
+
+        When called as:
+
+        _generic_protocol_properties('show bfd sessions', 1020, ('ip_address', 'interface', 'state', 'since', 'interval', 'timeout'), 'ip_address')
+        """
+
+        protocol_data = self._send_query(command)
+        protocols = {}
+        current_protocol = ''
+
+        skip_line = False
+
+        for line in iter(protocol_data.splitlines(False)):
+            if skip_line:
+                skip_line = False
+                continue
+            elif line.startswith('%i-' % protocol_id): # line marking the start of a protocol
+                current_protocol = line[5:].split()[0][:-1]
+                protocols[current_protocol] = {}
+                skip_line = True # skip next line (the column headers)
+            elif line.startswith(' '): # hopefully a protocol record
+                properties = {}
+
+                line = line.strip().split(None, len(columns))
+                for column_number, column_name in enumerate(columns):
+                    properties[column_name] = line[column_number]
+                protocols.pop(index_column, None)
+                protocols[current_protocol][properties[index_column]] = dict((k, v) for (k, v) in properties.iteritems() if k != index_column)
+
+        return(protocols)
+
+    def _protocol_properties(self):
+        # XXX this is a very cargo cult function... tidy it
+        """
+        Parse the output of 'show protocols' and return a dict containing all protocols' sessions with their properties.
+
+        The raw data looks like:
+
+        2002-name     proto    table    state  since       info
+        1002-bogons   Static   master   up     2014-10-29  
+        kernel1  Kernel   master   up     2014-10-29  
+        device1  Device   master   up     2014-10-29  
+        edge     Direct   master   up     2014-10-29  
+        bfd1     BFD      master   up     2014-10-29  
+        aggregates Static   master   up     2014-10-29  
+        blackholes Static   master   up     2014-10-29  
+        core     OSPF     master   up     2014-10-29  Running
+        cat_ibgp_wlg_por_router2 BGP      master   up     2014-11-03  Established   
+        acs_transit_1 BGP      master   up     2014-10-29  Established   
+        wlg_por_ffw1 BGP      master   up     2014-10-29  Established   
+        wlg_por_ffw2 BGP      master   up     2014-10-29  Established   
+        wlg_wil_router1 BGP      master   up     2014-10-29  Established   
+        wlg_wil_router2 BGP      master   up     2014-10-29  Established   
+        cat_ibgp_wlg_wil_router1 BGP      master   start  2014-11-05  Active        Socket: Network is unreachable
+        cat_ibgp_wlg_wil_router2 BGP      master   start  2014-11-05  Active        Socket: Network is unreachable
+        0000 
+
+        Will be turned in to:
+
+        {'acs_transit_1': {'info': 'Established',
+                        'proto': 'BGP',
+                        'since': '2014-10-29',
+                        'state': 'up',
+                        'table': 'master'},
+        'aggregates': {'info': '',
+                        'proto': 'Static',
+                        'since': '2014-10-29',
+                        'state': 'up',
+                        'table': 'master'},
+        (and so on...)
+
+        When called as:
+
+        _protocol_properties()
+        """
+
+        columns = ('name', 'proto', 'table', 'state', 'since', 'info')
+        index_column = 'name'
+
+        protocol_data = self._send_query('show protocols')
+
+        instances = {}
+
+        for line in iter(protocol_data.splitlines(False)):
+            if line.startswith('2002-'): # column names
+                continue
+            elif line.startswith('1002-') or line.startswith(' '): # hopefully a protocol record
+                properties = {}
+
+                if line.startswith('1002-'):
+                    line = line[5:]
+
+                line = line.strip().split(None, len(columns))
+                for column_number, column_name in enumerate(columns):
+                    try:
+                        properties[column_name] = line[column_number]
+                    except:
+                        properties[column_name] = ''
+
+                instance_name = properties['name']
+                properties.pop('name', None)
+                instances[instance_name] = properties
+
+        return(instances)
+
+    def check_interfaces(self):
+        """
+        Check that all interfaces are either up or disabled, returns a tuple of (nagios_code, reason).
+        """
+
+        disabled = []
+        down = []
+        up = []
+        unknown = []
+
+        for interface, flags in self._interface_flags().iteritems():
+            if 'AdminDown' in flags:
+                disabled.append(interface)
+            elif 'LinkDown' in flags:
+                down.append(interface)
+            elif 'LinkUp' in flags:
+                up.append(interface)
+            else:
+                unknown.append(interface)
+
+        if down:
+            return((NAGIOS_CRITICAL, '%i down (%s)' % (len(down), ', '.join(down))))
+
+        if unknown:
+            return((NAGIOS_UNKNOWN, '%i unknown (%s)' % (len(unknown), ', '.join(unknown))))
+
+        if up and not disabled:
+            return((NAGIOS_OK, '%i up' % len(up)))
+        elif up and disabled:
+            return((NAGIOS_OK, '%i up, %i disabled' % (len(up), len(disabled))))
+        else:
+            return((NAGIOS_OK, 'no interfaces'))
+
+    def check_bfd(self):
+        """
+        Check that all configured BFD sessions are 'up'.
+        """
+
+        down = []
+        up = []
+
+        bfd_sessions = self._generic_protocol_properties('show bfd sessions', 1020, ('ip_address', 'interface', 'state', 'since', 'interval', 'timeout'), 'ip_address')
+
+        for protocol, sessions in bfd_sessions.iteritems():
+            for neighbor, properties in sessions.iteritems():
+                if properties['state'] != 'Up':
+                    down.append(neighbor)
+                else:
+                    up.append(neighbor)
+
+        if down:
+            return((NAGIOS_CRITICAL, '%i down (%s)' % (len(down), ', '.join(down))))
+
+        if up:
+            return((NAGIOS_OK, '%i up' % len(up)))
+        else:
+            return((NAGIOS_OK, 'BFD not running'))
+
+    def check_ospf(self):
+        """
+        Check that all configured OSPF neighbors are 'Full'.
+        """
+
+        down = []
+        up = []
+
+        for protocol, sessions in self._generic_protocol_properties('show ospf neighbors', 1013, ('router_id', 'pri', 'state', 'dtime', 'interface', 'router_ip'), 'router_id').iteritems():
+            for neighbor, properties in sessions.iteritems():
+                if not properties['state'].startswith('full/'):
+                    down.append(neighbor)
+                else:
+                    up.append(neighbor)
+
+        if down:
+            return((NAGIOS_CRITICAL, '%i down (%s)' % (len(down), ', '.join(down))))
+
+        if up:
+            return((NAGIOS_OK, '%i up' % len(up)))
+        else:
+            return((NAGIOS_OK, 'OSPF not running'))
+
+    def check_bgp(self):
+        """
+        Check that all configured BGP neighbors are 'Established'.
+        """
+
+        down = []
+        up = []
+        disabled = []
+
+        protocol_instances = self._protocol_properties()
+
+        for instance, properties in protocol_instances.iteritems():
+
+            if properties['proto'] == 'BGP' and properties['state'] == 'down':
+                disabled.append(instance)
+                continue
+
+            if properties['proto'] == 'BGP' and properties['info'] != 'Established':
+                down.append(instance)
+            elif properties['proto'] == 'BGP':
+                up.append(instance)
+
+        if down:
+            return((NAGIOS_CRITICAL, '%i down (%s)' % (len(down), ', '.join(down))))
+
+        if up and not disabled:
+            return((NAGIOS_OK, '%i up' % len(up)))
+        elif up and disabled:
+            return((NAGIOS_OK, '%i up, %i disabled' % (len(up), len(disabled))))
+        else:
+            return((NAGIOS_OK, 'BGP not running'))
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('check', choices=('interfaces', 'bfd', 'ospf', 'bgp'), help='which check to run')
+    parser.add_argument('--control-socket', default=BIRD_CONTROL_SOCKET, help='location of BIRD control socket, defaults to %s' % BIRD_CONTROL_SOCKET)
+    args = parser.parse_args()
+
+    checker = BirdChecker(args.control_socket)
+
+    try:
+        if args.check == 'interfaces':
+            return_code, description = checker.check_interfaces()
+        elif args.check == 'bfd':
+            return_code, description = checker.check_bfd()
+        elif args.check == 'ospf':
+            return_code, description = checker.check_ospf()
+        elif args.check == 'bgp':
+            return_code, description = checker.check_bgp()
+        else:
+            raise NotImplementedError("no check matching '%s'" % args.check) # this will only happen if not all possible choices in argparse are not implemented
+    except socket.error:
+        sys.stdout.write("error: could not connect to bird\n")
+        sys.exit(NAGIOS_UNKNOWN)
+
+    sys.stdout.write("%s\n" % description)
+    sys.exit(return_code)
