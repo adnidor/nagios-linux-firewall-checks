@@ -19,8 +19,6 @@
 Compare the number of entries in the netfilter conntrack table to the maximum number permitted. Return warning and critical states for nagios at configurable thresholds.
 
 Michael Fincham <michael.fincham@catalyst.net.nz>.
-
-This file is licensed under the GNU General Public License version 3.
 """
 
 import argparse
