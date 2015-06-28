@@ -19,7 +19,7 @@
 Check various aspects of a running BIRD daemon (interface states, several routing protocols) by interrogating the
 daemon via its control socket. Intended to be run from nagios.
 
-Michael Fincham <michael.fincham@catalyst.net.nz>. This file is licensed under the GNU General Public License version 3.
+Michael Fincham <michael.fincham@catalyst.net.nz>.
 """
 
 import sys
