@@ -70,10 +70,10 @@ class BirdChecker(object):
 
         1001-br-nat up (index=19)
         1004-   MultiAccess Broadcast Multicast AdminUp LinkUp MTU=1500
-        1003-   202.78.247.160/32 (Primary, scope univ)
-                202.78.247.162/32 (Unselected, scope univ)
-                202.78.247.161/32 (Unselected, scope univ)
-                202.78.247.163/32 (Unselected, scope univ)
+        1003-   192.0.2.X/32 (Primary, scope univ)
+                192.0.2.X/32 (Unselected, scope univ)
+                192.0.2.X/32 (Unselected, scope univ)
+                192.0.2.X/32 (Unselected, scope univ)
 
         Will be turned in to:
 
@@ -102,17 +102,17 @@ class BirdChecker(object):
 
         1020-bfd1:
          IP address                Interface  State      Since       Interval  Timeout
-         202.78.247.11             bond0.503  Up         2014-10-06    0.100    0.500
-         202.78.247.9              bond0.502  Up         2014-09-24    0.100    0.500
+         192.0.2.X
+         192.0.2.X
 
         Will be turned in to:
 
-        {'bfd1': {'202.78.247.11': {'interface': 'bond0.503',
+        {'bfd1': {'192.0.2.X
                                     'interval': '0.100',
                                     'since': '2014-10-06',
                                     'state': 'Up',
                                     'timeout': '0.500'},
-                  '202.78.247.9': {'interface': 'bond0.502',
+                  '192.0.2.X
                                    'interval': '0.100',
                                    'since': '2014-09-24',
                                    'state': 'Up',
@@ -164,24 +164,11 @@ class BirdChecker(object):
         aggregates Static   master   up     2014-10-29  
         blackholes Static   master   up     2014-10-29  
         core     OSPF     master   up     2014-10-29  Running
-        cat_ibgp_wlg_por_router2 BGP      master   up     2014-11-03  Established   
-        acs_transit_1 BGP      master   up     2014-10-29  Established   
-        wlg_por_ffw1 BGP      master   up     2014-10-29  Established   
-        wlg_por_ffw2 BGP      master   up     2014-10-29  Established   
-        wlg_wil_router1 BGP      master   up     2014-10-29  Established   
-        wlg_wil_router2 BGP      master   up     2014-10-29  Established   
-        cat_ibgp_wlg_wil_router1 BGP      master   start  2014-11-05  Active        Socket: Network is unreachable
-        cat_ibgp_wlg_wil_router2 BGP      master   start  2014-11-05  Active        Socket: Network is unreachable
         0000 
 
         Will be turned in to:
 
-        {'acs_transit_1': {'info': 'Established',
-                        'proto': 'BGP',
-                        'since': '2014-10-29',
-                        'state': 'up',
-                        'table': 'master'},
-        'aggregates': {'info': '',
+        {'aggregates': {'info': '',
                         'proto': 'Static',
                         'since': '2014-10-29',
                         'state': 'up',
