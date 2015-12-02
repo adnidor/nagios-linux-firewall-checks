@@ -277,7 +277,7 @@ class BirdChecker(object):
 
         for protocol, sessions in self._generic_protocol_properties('show ospf neighbors', 1013, ('router_id', 'pri', 'state', 'dtime', 'interface', 'router_ip'), 'router_id').iteritems():
             for neighbor, properties in sessions.iteritems():
-                if not properties['state'].startswith('full/'):
+                if not properties['state'].lower().startswith('full/'):
                     down.append(neighbor)
                 else:
                     up.append(neighbor)
