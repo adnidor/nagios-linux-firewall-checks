@@ -22,9 +22,10 @@ daemon via its control socket. Intended to be run from nagios.
 Michael Fincham <michael.fincham@catalyst.net.nz>.
 """
 
-import sys
-import socket
 import argparse
+import re
+import socket
+import sys
 
 BIRD_CONTROL_SOCKET="/run/bird/bird.ctl"
 
@@ -35,8 +36,9 @@ NAGIOS_UNKNOWN = 3
 
 class BirdChecker(object):
 
-    def __init__(self, control_socket):
+    def __init__(self, control_socket, ignore):
         self.control_socket = control_socket
+        self.ignore = ignore
 
     # mostly from pybird.py
     def _send_query(self, query):
@@ -146,7 +148,10 @@ class BirdChecker(object):
                 protocols.pop(index_column, None)
                 protocols[current_protocol][properties[index_column]] = dict((k, v) for (k, v) in properties.iteritems() if k != index_column)
 
-        return(protocols)
+        if self.ignore is not None:
+            return({k:v for k,v in protocols.iteritems() if not self.ignore.search(k)})
+        else:
+            return(protocols)
 
     def _protocol_properties(self):
         # XXX this is a very cargo cult function... tidy it
@@ -156,15 +161,15 @@ class BirdChecker(object):
         The raw data looks like:
 
         2002-name     proto    table    state  since       info
-        1002-bogons   Static   master   up     2014-10-29  
-        kernel1  Kernel   master   up     2014-10-29  
-        device1  Device   master   up     2014-10-29  
-        edge     Direct   master   up     2014-10-29  
-        bfd1     BFD      master   up     2014-10-29  
-        aggregates Static   master   up     2014-10-29  
-        blackholes Static   master   up     2014-10-29  
+        1002-bogons   Static   master   up     2014-10-29
+        kernel1  Kernel   master   up     2014-10-29
+        device1  Device   master   up     2014-10-29
+        edge     Direct   master   up     2014-10-29
+        bfd1     BFD      master   up     2014-10-29
+        aggregates Static   master   up     2014-10-29
+        blackholes Static   master   up     2014-10-29
         core     OSPF     master   up     2014-10-29  Running
-        0000 
+        0000
 
         Will be turned in to:
 
@@ -207,7 +212,10 @@ class BirdChecker(object):
                 properties.pop('name', None)
                 instances[instance_name] = properties
 
-        return(instances)
+        if self.ignore is not None:
+            return({k:v for k,v in instances.iteritems() if not self.ignore.search(k)})
+        else:
+            return(instances)
 
     def check_interfaces(self):
         """
@@ -328,9 +336,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('check', choices=('interfaces', 'bfd', 'ospf', 'bgp'), help='which check to run')
     parser.add_argument('--control-socket', default=BIRD_CONTROL_SOCKET, help='location of BIRD control socket, defaults to %s' % BIRD_CONTROL_SOCKET)
+    parser.add_argument('--ignore', default=None, help='regular expression of protocol names which should be ignored')
     args = parser.parse_args()
 
-    checker = BirdChecker(args.control_socket)
+    try:
+        ignore = re.compile(args.ignore)
+    except:
+        ignore = None
+
+    checker = BirdChecker(args.control_socket, ignore)
 
     try:
         if args.check == 'interfaces':
