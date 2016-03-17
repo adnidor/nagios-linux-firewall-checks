@@ -336,7 +336,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('check', choices=('interfaces', 'bfd', 'ospf', 'bgp'), help='which check to run')
     parser.add_argument('--control-socket', default=BIRD_CONTROL_SOCKET, help='location of BIRD control socket, defaults to %s' % BIRD_CONTROL_SOCKET)
-    parser.add_argument('--ignore', default=None, help='regular expression of protocol names which should be ignored')
+    parser.add_argument('--ignore', default=None, help='if supplied, a regular expression of protocol names which should be ignored')
     args = parser.parse_args()
 
     try:

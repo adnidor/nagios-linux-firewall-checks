@@ -7,7 +7,7 @@ Requirements: python 2.7 or python-argparse
 ## check_bird
 
 <pre>
-usage: check_bird [-h] [--control-socket CONTROL_SOCKET]
+usage: check_bird [-h] [--control-socket CONTROL_SOCKET] [--ignore IGNORE]
                   {interfaces,bfd,ospf,bgp}
 
 Check various aspects of a running BIRD daemon (interface states, several
@@ -24,6 +24,8 @@ optional arguments:
   --control-socket CONTROL_SOCKET
                         location of BIRD control socket, defaults to
                         /run/bird/bird.ctl
+  --ignore IGNORE       if supplied, a regular expression of protocol names
+                        which should be ignored
 </pre>
 
 ## check_conntrack
