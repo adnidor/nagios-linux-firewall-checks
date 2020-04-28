@@ -330,13 +330,34 @@ class BirdChecker(object):
         else:
             return((NAGIOS_OK, 'BGP not running'))
 
+    def check_proto(self, protocol):
+        """
+        Check that the queried protocol is 'up'.
+        """
+
+        protocol_instances = self._protocol_properties()
+
+        if protocol not in protocol_instances:
+            return (NAGIOS_CRITICAL, "%s not found"%protocol)
+
+        properties = protocol_instances[protocol]
+
+        if properties['state'] == 'down':
+            return (NAGIOS_OK, "%s is disabled"%(protocol))
+
+        if properties['state'] != 'up':
+            return (NAGIOS_CRITICAL, "%s is not up (%s)\nInfo: %s"%(protocol, properties["state"], properties["info"]))
+
+        return (NAGIOS_OK, "%s is up\nInfo: %s"%(protocol, properties["info"]))
+
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('check', choices=('interfaces', 'bfd', 'ospf', 'bgp'), help='which check to run')
+    parser.add_argument('check', choices=('interfaces', 'bfd', 'ospf', 'bgp', 'single_protocol'), help='which check to run')
     parser.add_argument('--control-socket', default=BIRD_CONTROL_SOCKET, help='location of BIRD control socket, defaults to %s' % BIRD_CONTROL_SOCKET)
     parser.add_argument('--ignore', default=None, help='if supplied, a regular expression of protocol names which should be ignored')
+    parser.add_argument("--protocol", default=None, help="the protocol to check if used with 'single_protocol'")
     args = parser.parse_args()
 
     try:
@@ -355,6 +376,8 @@ if __name__ == "__main__":
             return_code, description = checker.check_ospf()
         elif args.check == 'bgp':
             return_code, description = checker.check_bgp()
+        elif args.check == 'single_protocol':
+            return_code, description = checker.check_proto(args.protocol)
         else:
             raise NotImplementedError("no check matching '%s'" % args.check) # this will only happen if not all possible choices in argparse are not implemented
     except socket.error:
